@@ -40,15 +40,22 @@ type Cell struct {
 	Col Coord
 }
 
+type PathField = [][]int
+
 type Coord = uint8
 
+type PrevGameState struct {
+	field     Field
+	nextBalls []Color
+}
+
 type GameState struct {
-	field         Field
-	selectedBall  mb.Maybe[Cell]
-	nextBalls     []Color
-	prevField     Field
-	prevNextBalls []Color
-	turnIsEnded   bool
+	field        Field
+	selectedBall mb.Maybe[Cell]
+	nextBalls    []Color
+	turnIsEnded  bool
+	pathField    mb.Maybe[PathField]
+	prevStates   []PrevGameState
 }
 
 func (game *GameState) TurnIsEnded() bool {
@@ -56,20 +63,55 @@ func (game *GameState) TurnIsEnded() bool {
 }
 
 func undoLastMove(game *GameState) error {
-	if game.prevField == nil {
+	if len(game.prevStates) == 0 {
 		return errors.New("Unable to undo")
+	} else {
+		prevS := game.prevStates[len(game.prevStates)-1]
+		for r, cols := range prevS.field {
+			for c, val := range cols {
+				game.field[r][c] = val
+			}
+		}
+
+		for i, val := range prevS.nextBalls {
+			game.nextBalls[i] = val
+		}
+
+		game.selectedBall = mb.Nothing[Cell]{}
+		game.pathField = nil
+		game.turnIsEnded = false
+		game.prevStates = game.prevStates[:len(game.prevStates)-1]
+		return nil
 	}
-	game.field = game.prevField
-	game.prevField = nil
-	game.nextBalls = game.prevNextBalls
-	game.prevNextBalls = nil
-	game.turnIsEnded = true
-	return nil
+}
+
+func addPrevState(game *GameState) {
+	newField := make([][]Color, FIELD_SIZE)
+	for i := 0; i < FIELD_SIZE; i++ {
+		newField[i] = make([]Color, FIELD_SIZE)
+	}
+
+	newNextBalls := make([]Color, BALLS_PER_TURN)
+
+	newState := PrevGameState{field: newField, nextBalls: newNextBalls}
+
+	for r, cols := range game.field {
+		for c, val := range cols {
+			newState.field[r][c] = val
+		}
+	}
+
+	for i, val := range game.nextBalls {
+		newState.nextBalls[i] = val
+	}
+
+	game.prevStates = append(game.prevStates, newState)
 }
 
 func (game *GameState) ProcessInput(input Input) error {
 	switch input.Comand {
 	case INPUT_END_TURN:
+		addPrevState(game)
 		game.turnIsEnded = true
 		return nil
 	case INPUT_UNDO:
@@ -80,7 +122,7 @@ func (game *GameState) ProcessInput(input Input) error {
 		cell, _ := input.Cell.FromJust()
 		if game.GetColor(cell) == 0 {
 			if game.selectedBall.IsJust() {
-				if game.PathIsAvailable(cell).IsJust() {
+				if game.PathIsAvailable(cell) {
 					game.MoveBall(cell)
 					return nil
 				} else {
@@ -101,56 +143,9 @@ func (game *GameState) ProcessInput(input Input) error {
 	}
 }
 
-// func neighbourCells(game GameState, cell Cell) []Cell {
-
-// 	neighbours := make([]Cell, 0)
-
-// 	appendNeighbour := func(cl Cell) {
-// 		if checkBounds(cl) && game.GetColor(cl) == 0 {
-// 			neighbours = append(neighbours, cl)
-// 		}
-// 	}
-
-// 	r := cell.row
-// 	c := cell.col
-
-// 	appendNeighbour(Cell{r + 1, c})
-// 	appendNeighbour(Cell{r - 1, c})
-// 	appendNeighbour(Cell{r, c + 1})
-// 	appendNeighbour(Cell{r, c - 1})
-
-// 	return neighbours
-// }
-
-func findPath(game GameState, cellTo Cell, path []Cell) mb.Maybe[[]Cell] {
-	panic("undefined")
-}
-
-// func findPath(game GameState, cellTo Cell, path []Cell) mb.Maybe[[]Cell] {
-// 	if path[len(path)-1] == cellTo {
-// 		return mb.Nothing[[]Cell]{}
-// 	} else {
-// 		neighbours := neighbourCells(game, path[len(path)-1])
-// 		if len(neighbours) == 0 {
-// 			return mb.Nothing[[]Cell]{}
-// 		} else {
-// 			// candidates := make([][]Cell,0)
-// 			for _, nb := range neighbours {
-// 				path = append(path, nb)
-// 				res := findPath(game, cellTo, path)
-// 				if res.IsJust() {
-// 					return res
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return mb.Nothing[[]Cell]{}
-// }
-
-func (game *GameState) PathIsAvailable(cellTo Cell) mb.Maybe[[]Cell] {
-	cellFrom, _ := game.selectedBall.FromJust()
-	path := []Cell{cellFrom}
-	return findPath(*game, cellTo, path)
+func (game *GameState) PathIsAvailable(cellTo Cell) bool {
+	pathField, _ := game.pathField.FromJust()
+	return pathField[cellTo.Row][cellTo.Col] >= 0
 }
 
 func (game *GameState) GetColor(cell Cell) Color {
@@ -163,6 +158,8 @@ func (game *GameState) SelectBall(cell Cell) error {
 	}
 	if game.GetColor(cell) != 0 {
 		game.selectedBall = mb.Just[Cell]{Val: cell}
+		pathField := FillPathField(game.field, cell)
+		game.pathField = mb.Just[PathField]{Val: pathField}
 		return nil
 	} else {
 		return errors.New("Cell is empty")
@@ -176,13 +173,19 @@ func checkBounds(cell Cell) bool {
 	return check(cell.Col) && check(cell.Row)
 }
 
-func (game *GameState) FindFullLines() [][]Cell {
-	panic("undefined")
-}
-
 func (game *GameState) MoveBall(cell Cell) error {
-	game.turnIsEnded = true
-	panic("undefined")
+	if !game.selectedBall.IsJust() {
+		return errors.New("No ball selected")
+	} else {
+		addPrevState(game)
+		selBall, _ := game.selectedBall.FromJust()
+		color := game.GetColor(selBall)
+		game.field[selBall.Row][selBall.Col] = 0
+		game.field[cell.Row][cell.Col] = color
+		game.ProcessFullLines()
+		game.turnIsEnded = true
+		return nil
+	}
 }
 
 func freeCells(field Field) []Cell {
@@ -221,6 +224,7 @@ func (game *GameState) InsertNewBalls() error {
 		game.nextBalls[i] = uint8(rand.Intn(COLORS_NUM) + 1)
 	}
 
+	game.ProcessFullLines()
 	game.turnIsEnded = false
 	return nil
 }

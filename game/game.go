@@ -5,17 +5,14 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"strings"
 	"time"
 
 	mb "github.com/nicvaltel/GoUtils/maybe"
 )
 
-type Game = LinesGame[Cell, Color, Input]
+// type Game = LinesGame[Cell, Color, Input]
 
 func gameLoop(game *GameState) bool {
-
-	fmt.Printf("GameStateA: %+v\n\n", game)
 
 	err := game.InsertNewBalls()
 	if err != nil {
@@ -45,49 +42,11 @@ func loseGame(game GameState) {
 }
 
 func winGame(game GameState) {
-	panic("unimplemented")
+	fmt.Printf("Game Over\n You Win\n") // TODO Implement
 }
 
 func log(str string) {
 	fmt.Println(str)
-}
-
-func letterToInt(char string) (Coord, error) {
-	char = strings.ToLower(char)
-	if len(char) != 1 || char < "a" || char > "z" {
-		return 0, fmt.Errorf("invalid input: %s", char)
-	}
-	return uint8(int(char[0]) - int('a')), nil
-}
-
-func numberToInt(char string) (Coord, error) {
-	char = strings.ToLower(char)
-	if len(char) != 1 || char < "1" || char > "9" {
-		return 0, fmt.Errorf("invalid input: %s", char)
-	}
-	return uint8(int(char[0]) - int('1')), nil
-}
-
-func parseInput(str string) (Input, error) {
-	noCell := mb.Nothing[Cell]{}
-	if str == "\n" {
-		return Input{Comand: INPUT_END_TURN, Cell: noCell}, nil
-	}
-	if str == "undo\n" {
-		return Input{Comand: INPUT_UNDO, Cell: noCell}, nil
-	}
-	if len(str) == 3 {
-		x, err := letterToInt(str[0:1])
-		if err != nil {
-			return Input{}, err
-		}
-		y, err := numberToInt(str[1:2])
-		if err != nil {
-			return Input{}, err
-		}
-		return Input{Comand: INPUT_COORD, Cell: mb.Just[Cell]{Val: Cell{x, y}}}, nil
-	}
-	return Input{}, fmt.Errorf("Invalid input: %s", str)
 }
 
 func getInput() (Input, error) {
@@ -95,11 +54,7 @@ func getInput() (Input, error) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter cell in format of e4: ")
 	str, _ := reader.ReadString('\n')
-	res, err := parseInput(str)
-	if err != nil {
-		return res, nil
-	}
-	return parseInput(str)
+	return ParseInput(str)
 }
 
 func initialGameState() GameState {
@@ -116,12 +71,11 @@ func initialGameState() GameState {
 	}
 
 	game := GameState{
-		field:         field_,
-		selectedBall:  mb.Nothing[Cell]{},
-		nextBalls:     nextBalls_,
-		prevField:     field_,
-		prevNextBalls: nextBalls_,
-		turnIsEnded:   true,
+		field:        field_,
+		selectedBall: mb.Nothing[Cell]{},
+		nextBalls:    nextBalls_,
+		prevStates:   []PrevGameState{},
+		turnIsEnded:  true,
 	}
 	return game
 }

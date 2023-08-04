@@ -5,6 +5,7 @@ import (
 )
 
 func main() {
-	// game.RunGame()
-	game.Run()
+	game.RunGame()
+	// game.TestPath()
+	// game.TestFullLines()
 }
